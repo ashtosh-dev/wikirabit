@@ -1,9 +1,20 @@
-requests==2.32.5
+# requests==2.32.5
+# beautifulsoup4==4.12.3
+# lxml==5.3.0
+# numpy==2.2.4
+# pandas==2.2.3
+# google-generativeai
+# fastapi
+# uvicorn
+# networkx
+
+requests==2.34.2
 beautifulsoup4==4.12.3
 lxml==5.3.0
 numpy==2.2.4
 pandas==2.2.3
-google-generativeai
-fastapi
-uvicorn
-networkx
+fastapi==0.136.1
+uvicorn==0.47.0
+networkx==3.6.1
+google-genai==2.4.0
+python-dotenv==1.2.2
