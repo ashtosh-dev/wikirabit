@@ -27,8 +27,10 @@ gemini_service = GeminiService()
 
 class BuildGraphRequest(BaseModel):
     start_article: str
-    depth: int = Field(default=2, ge=0, le=4)
-    max_links_per_page: int = Field(default=50, ge=1, le=500)
+    target_article: str | None = None
+    depth: int = Field(default=2, ge=0, le=5)
+    max_links_per_page: int = Field(default=30, ge=1, le=100)
+    max_nodes: int = Field(default=1500, ge=10, le=5000)
     strategy: str = "bfs"
 
 
@@ -75,8 +77,14 @@ def build_graph(request: BuildGraphRequest):
     try:
         graph = graph_service.build_graph(
             start_article=request.start_article.strip(),
+            target_article=(
+                request.target_article.strip()
+                if request.target_article
+                else None
+            ),
             depth=request.depth,
             max_links_per_page=request.max_links_per_page,
+            max_nodes=request.max_nodes,
             strategy=request.strategy,
         )
 
@@ -84,6 +92,9 @@ def build_graph(request: BuildGraphRequest):
             "nodes": graph.number_of_nodes(),
             "edges": graph.number_of_edges(),
             "strategy": request.strategy.lower(),
+            "depth": request.depth,
+            "max_links_per_page": request.max_links_per_page,
+            "max_nodes": request.max_nodes,
         }
 
     except ValueError as error:

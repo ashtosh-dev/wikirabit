@@ -3,7 +3,11 @@ from collections import deque
 import networkx as nx
 import pandas as pd
 
-from app.crawler.wiki_crawler import WikiCrawler
+from app.crawler.wiki_crawler import (
+    WikiCrawler,
+    WikiCrawlerError,
+    WikiRateLimitError,
+)
 from app.storage.graph_storage import GraphStorage
 
 
@@ -23,18 +27,30 @@ class GraphService:
     def build_graph(
         self,
         start_article: str,
+        target_article: str | None = None,
         depth: int = 2,
-        max_links_per_page: int = 50,
+        max_links_per_page: int = 30,
+        max_nodes: int = 1500,
         strategy: str = "bfs",
     ):
         normalized_strategy = strategy.lower().strip()
 
-        if normalized_strategy not in {"bfs", "dfs"}:
-            raise ValueError("strategy must be either 'bfs' or 'dfs'.")
+        if normalized_strategy not in {"bfs", "dfs", "bidirectional"}:
+            raise ValueError("strategy must be 'bfs', 'dfs', or 'bidirectional'.")
+
+        start_article = start_article.strip()
+        target_article = target_article.strip() if target_article else None
+
+        if not start_article:
+            raise ValueError("Start article is required.")
+
+        if normalized_strategy == "bidirectional" and not target_article:
+            raise ValueError("Target article is required for bidirectional BFS.")
 
         self.graph.clear()
 
         self.last_start_article = start_article
+        self.last_target_article = target_article
         self.last_depth = depth
         self.last_max_links_per_page = max_links_per_page
         self.last_strategy = normalized_strategy
@@ -44,21 +60,76 @@ class GraphService:
                 start_article=start_article,
                 depth=depth,
                 max_links_per_page=max_links_per_page,
+                max_nodes=max_nodes,
+            )
+
+        if normalized_strategy == "bidirectional":
+            return self._build_graph_bidirectional(
+                start_article=start_article,
+                target_article=target_article,
+                depth=depth,
+                max_links_per_page=max_links_per_page,
+                max_nodes=max_nodes,
             )
 
         return self._build_graph_bfs(
             start_article=start_article,
+            target_article=target_article,
             depth=depth,
             max_links_per_page=max_links_per_page,
+            max_nodes=max_nodes,
         )
+
+    def _handle_crawler_error(
+        self,
+        error: Exception,
+        article: str,
+        required: bool = False,
+    ) -> list[str]:
+        if isinstance(error, WikiRateLimitError):
+            raise ValueError(str(error)) from error
+
+        if isinstance(error, WikiCrawlerError):
+            if required:
+                raise ValueError(str(error)) from error
+
+            print(f"Skipping {article}: {error}")
+            return []
+
+        if required:
+            raise ValueError(
+                "Could not crawl the start article. Try again with a valid Wikipedia title."
+            ) from error
+
+        print(f"Skipping {article}: unexpected crawler error")
+        return []
+
+    def _get_links_safely(
+        self,
+        article: str,
+        max_links_per_page: int,
+        required: bool = False,
+    ) -> list[str]:
+        try:
+            return self.crawler.get_links(article, max_links_per_page)
+
+        except Exception as error:
+            return self._handle_crawler_error(
+                error=error,
+                article=article,
+                required=required,
+            )
 
     def _build_graph_bfs(
         self,
         start_article: str,
+        target_article: str | None,
         depth: int,
         max_links_per_page: int,
+        max_nodes: int,
     ):
         visited = set()
+        queued = {start_article}
         queue = deque([(start_article, 0)])
 
         self.graph.add_node(start_article)
@@ -74,21 +145,27 @@ class GraphService:
             if current_depth >= depth:
                 continue
 
-            try:
-                links = self.crawler.get_links(
-                    current_article,
-                    max_links_per_page,
-                )
+            if self.graph.number_of_nodes() >= max_nodes:
+                break
 
-            except Exception as error:
-                print(f"Error crawling {current_article}: {error}")
-                continue
+            links = self._get_links_safely(
+                article=current_article,
+                max_links_per_page=max_links_per_page,
+                required=current_article == start_article,
+            )
 
             for link in links:
                 self.graph.add_node(link)
                 self.graph.add_edge(current_article, link)
 
-                if link not in visited:
+                if target_article and link.lower() == target_article.lower():
+                    return self.graph
+
+                if self.graph.number_of_nodes() >= max_nodes:
+                    break
+
+                if link not in visited and link not in queued:
+                    queued.add(link)
                     queue.append((link, current_depth + 1))
 
         return self.graph
@@ -98,6 +175,7 @@ class GraphService:
         start_article: str,
         depth: int,
         max_links_per_page: int,
+        max_nodes: int,
     ):
         visited = set()
 
@@ -107,24 +185,26 @@ class GraphService:
             if article in visited:
                 return
 
+            if self.graph.number_of_nodes() >= max_nodes:
+                return
+
             visited.add(article)
 
             if current_depth >= depth:
                 return
 
-            try:
-                links = self.crawler.get_links(
-                    article,
-                    max_links_per_page,
-                )
-
-            except Exception as error:
-                print(f"Error crawling {article}: {error}")
-                return
+            links = self._get_links_safely(
+                article=article,
+                max_links_per_page=max_links_per_page,
+                required=article == start_article,
+            )
 
             for link in links:
                 self.graph.add_node(link)
                 self.graph.add_edge(article, link)
+
+                if self.graph.number_of_nodes() >= max_nodes:
+                    return
 
                 if link not in visited:
                     dfs(link, current_depth + 1)
@@ -132,6 +212,94 @@ class GraphService:
         dfs(start_article, 0)
 
         return self.graph
+
+    def _build_graph_bidirectional(
+        self,
+        start_article: str,
+        target_article: str,
+        depth: int,
+        max_links_per_page: int,
+        max_nodes: int,
+    ):
+        if start_article.lower() == target_article.lower():
+            self.graph.add_node(start_article)
+            return self.graph
+
+        self.graph.add_node(start_article)
+        self.graph.add_node(target_article)
+
+        start_frontier = deque([(start_article, 0)])
+        target_frontier = deque([(target_article, 0)])
+
+        discovered_from_start = {start_article}
+        discovered_from_target = {target_article}
+
+        while start_frontier and target_frontier:
+            if self.graph.number_of_nodes() >= max_nodes:
+                break
+
+            if len(start_frontier) <= len(target_frontier):
+                meeting_article = self._expand_bidirectional_frontier(
+                    frontier=start_frontier,
+                    this_side_discovered=discovered_from_start,
+                    other_side_discovered=discovered_from_target,
+                    depth=depth,
+                    max_links_per_page=max_links_per_page,
+                    max_nodes=max_nodes,
+                )
+            else:
+                meeting_article = self._expand_bidirectional_frontier(
+                    frontier=target_frontier,
+                    this_side_discovered=discovered_from_target,
+                    other_side_discovered=discovered_from_start,
+                    depth=depth,
+                    max_links_per_page=max_links_per_page,
+                    max_nodes=max_nodes,
+                )
+
+            if meeting_article:
+                return self.graph
+
+        return self.graph
+
+    def _expand_bidirectional_frontier(
+        self,
+        frontier: deque,
+        this_side_discovered: set[str],
+        other_side_discovered: set[str],
+        depth: int,
+        max_links_per_page: int,
+        max_nodes: int,
+    ):
+        if not frontier:
+            return None
+
+        current_article, current_depth = frontier.popleft()
+
+        if current_depth >= depth:
+            return None
+
+        links = self._get_links_safely(
+            article=current_article,
+            max_links_per_page=max_links_per_page,
+            required=True,
+        )
+
+        for link in links:
+            self.graph.add_node(link)
+            self.graph.add_edge(current_article, link)
+
+            if link in other_side_discovered:
+                return link
+
+            if self.graph.number_of_nodes() >= max_nodes:
+                return None
+
+            if link not in this_side_discovered:
+                this_side_discovered.add(link)
+                frontier.append((link, current_depth + 1))
+
+        return None
 
     def shortest_path(self, source: str, target: str):
         if source not in self.graph:
@@ -149,8 +317,8 @@ class GraphService:
                 "path": [],
                 "distance": None,
                 "message": (
-                    "Target article was not found in the current graph. "
-                    "Increase depth or max links per page."
+                    "Target article was not reached in this bounded crawl. "
+                    "Try Bidirectional BFS, increase depth slightly, or use a more directly related article."
                 ),
             }
 
@@ -167,7 +335,10 @@ class GraphService:
             return {
                 "path": [],
                 "distance": None,
-                "message": "No path found in the current graph.",
+                "message": (
+                    "No path found in the current graph. "
+                    "Try Bidirectional BFS, increase depth slightly, or reduce how unrelated the articles are."
+                ),
             }
 
     def graph_stats(self):
