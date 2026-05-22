@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.ai.gemini_service import GeminiService
@@ -44,10 +45,21 @@ class ExplainRequest(BaseModel):
 
 class SaveGraphRequest(BaseModel):
     filename: str = "wikirabit_graph"
+    target_article: str | None = None
 
 
 class LoadGraphRequest(BaseModel):
     filename: str
+
+
+class ExportGraphRequest(BaseModel):
+    filename: str = "wikirabit_graph"
+    format: str = "csv"
+
+
+class RenameSessionRequest(BaseModel):
+    filename: str
+    new_filename: str
 
 
 @app.get("/")
@@ -130,7 +142,14 @@ def get_graph():
 @app.post("/save-graph")
 def save_graph(request: SaveGraphRequest):
     try:
-        return graph_service.save_graph(request.filename)
+        return graph_service.save_graph(
+            request.filename,
+            extra_metadata={
+                "target_article": request.target_article.strip()
+                if request.target_article
+                else None,
+            },
+        )
 
     except Exception as error:
         raise HTTPException(
@@ -158,4 +177,74 @@ def load_graph(request: LoadGraphRequest):
 def list_sessions():
     return {
         "sessions": graph_service.list_sessions(),
+        "current_session": graph_service.current_session_filename,
     }
+
+
+@app.post("/sessions/rename")
+def rename_session(request: RenameSessionRequest):
+    try:
+        return graph_service.rename_session(
+            filename=request.filename,
+            new_filename=request.new_filename,
+        )
+
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    except FileExistsError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.delete("/sessions/{filename}")
+def delete_session(filename: str):
+    try:
+        return graph_service.delete_session(filename)
+
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/export-graph")
+def export_graph(request: ExportGraphRequest):
+    try:
+        return graph_service.export_graph(
+            filename=request.filename,
+            export_format=request.format,
+        )
+
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not export graph: {error}",
+        ) from error
+
+
+@app.get("/exports/{filename}")
+def download_export(filename: str):
+    try:
+        file_path = graph_service.export_path(filename)
+        return FileResponse(path=file_path, filename=file_path.name)
+
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.get("/centrality")
+def centrality(limit: int = Query(default=10, ge=1, le=25)):
+    return graph_service.centrality_stats(limit=limit)
+
+
+@app.get("/connections")
+def article_connections(
+    article: str = Query(..., min_length=1),
+    limit: int = Query(default=12, ge=1, le=50),
+):
+    try:
+        return graph_service.article_connections(article=article, limit=limit)
+
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error

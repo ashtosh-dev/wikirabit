@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import app.main as main_module
 from app.main import app
 
 
@@ -109,6 +110,139 @@ class ApiRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), expected)
+
+    @patch("app.main.graph_service.save_graph")
+    def test_save_graph_route_passes_target_article_metadata(self, mock_save_graph):
+        mock_save_graph.return_value = {
+            "filename": "demo.json",
+            "nodes": 2,
+            "edges": 1,
+        }
+
+        response = self.client.post(
+            "/save-graph",
+            json={
+                "filename": "demo",
+                "target_article": "  Jazz  ",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_save_graph.assert_called_once_with(
+            "demo",
+            extra_metadata={"target_article": "Jazz"},
+        )
+
+    @patch("app.main.graph_service.list_sessions")
+    def test_sessions_route_returns_sessions_and_current_session(self, mock_list_sessions):
+        mock_list_sessions.return_value = [
+            {
+                "filename": "demo.json",
+                "metadata": {"nodes": 2, "edges": 1},
+                "is_current": True,
+            }
+        ]
+
+        with patch.object(main_module.graph_service, "current_session_filename", "demo.json"):
+            response = self.client.get("/sessions")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "sessions": mock_list_sessions.return_value,
+                "current_session": "demo.json",
+            },
+        )
+
+    @patch("app.main.graph_service.rename_session")
+    def test_rename_session_route_returns_renamed_session(self, mock_rename_session):
+        mock_rename_session.return_value = {
+            "filename": "renamed.json",
+            "previous_filename": "demo.json",
+        }
+
+        response = self.client.post(
+            "/sessions/rename",
+            json={
+                "filename": "demo",
+                "new_filename": "renamed",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), mock_rename_session.return_value)
+
+    @patch("app.main.graph_service.delete_session")
+    def test_delete_session_route_returns_delete_result(self, mock_delete_session):
+        mock_delete_session.return_value = {
+            "filename": "demo.json",
+            "deleted": True,
+        }
+
+        response = self.client.delete("/sessions/demo.json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), mock_delete_session.return_value)
+
+    @patch("app.main.graph_service.export_graph")
+    def test_export_graph_route_returns_export_files(self, mock_export_graph):
+        mock_export_graph.return_value = {
+            "format": "csv",
+            "files": [
+                {"filename": "demo_nodes.csv"},
+                {"filename": "demo_edges.csv"},
+            ],
+            "nodes": 2,
+            "edges": 1,
+        }
+
+        response = self.client.post(
+            "/export-graph",
+            json={
+                "filename": "demo",
+                "format": "csv",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), mock_export_graph.return_value)
+        mock_export_graph.assert_called_once_with(
+            filename="demo",
+            export_format="csv",
+        )
+
+    @patch("app.main.graph_service.centrality_stats")
+    def test_centrality_route_returns_ranked_articles(self, mock_centrality_stats):
+        mock_centrality_stats.return_value = {
+            "articles": [
+                {
+                    "article": "Physics",
+                    "degree": 3,
+                    "degree_centrality": 0.75,
+                }
+            ]
+        }
+
+        response = self.client.get("/centrality?limit=5")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), mock_centrality_stats.return_value)
+        mock_centrality_stats.assert_called_once_with(limit=5)
+
+    @patch("app.main.graph_service.article_connections")
+    def test_connections_route_returns_connected_articles(self, mock_article_connections):
+        mock_article_connections.return_value = {
+            "article": "Physics",
+            "degree": 3,
+            "connected_articles": [{"article": "Math", "degree": 2}],
+        }
+
+        response = self.client.get("/connections?article=Physics&limit=4")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), mock_article_connections.return_value)
+        mock_article_connections.assert_called_once_with(article="Physics", limit=4)
 
 
 if __name__ == "__main__":

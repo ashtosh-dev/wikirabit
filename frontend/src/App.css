@@ -248,6 +248,7 @@ button:disabled {
 
 .path-panel,
 .ai-panel,
+.insights-panel,
 .stats-panel,
 .storage-panel {
   margin-top: 24px;
@@ -373,6 +374,7 @@ button:disabled {
 }
 
 .ai-panel h2,
+.insights-panel h2,
 .storage-panel h2 {
   margin: 8px 0 0;
   font-family: "Playfair Display", serif;
@@ -437,6 +439,21 @@ button:disabled {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.hub-action {
+  width: 100%;
+  margin-top: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  letter-spacing: 0;
+}
+
+.hub-action:hover,
+.hub-action:focus {
+  color: #d8b65a;
+}
+
 .hub-row span {
   color: #f5f0e8;
   overflow-wrap: anywhere;
@@ -450,6 +467,10 @@ button:disabled {
   margin-top: 18px;
   display: grid;
   gap: 10px;
+}
+
+.compact-list {
+  margin-top: 14px;
 }
 
 .session-item {
@@ -467,6 +488,10 @@ button:disabled {
   letter-spacing: 0;
 }
 
+.compact-item {
+  padding: 12px 14px;
+}
+
 .session-item span {
   overflow-wrap: anywhere;
 }
@@ -477,6 +502,115 @@ button:disabled {
   font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
+}
+
+.connections-panel {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.connections-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.connections-header p,
+.history-heading {
+  margin: 0 0 8px;
+  color: #8c8790;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.connections-header strong {
+  display: block;
+  font-size: 24px;
+  font-family: "Playfair Display", serif;
+}
+
+.connections-header span {
+  color: #d8b65a;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.session-history {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.session-card {
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.session-card-current {
+  border-color: rgba(216, 182, 90, 0.42);
+  box-shadow: inset 0 0 24px rgba(216, 182, 90, 0.07);
+}
+
+.session-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.session-card-header span {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.session-card-header strong {
+  display: block;
+  margin-top: 8px;
+  color: #d8b65a;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.session-card-header em {
+  color: #d8b65a;
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.session-meta {
+  margin: 12px 0 0;
+  color: #aaa4ad;
+  line-height: 1.6;
+}
+
+.session-actions {
+  margin-top: 18px;
+}
+
+.session-rename {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.session-rename button,
+.danger-action {
+  margin-top: 0;
+}
+
+.danger-action {
+  border-color: rgba(255, 107, 107, 0.34);
+  color: #ff8f8f;
 }
 
 .graph-card {
