@@ -85,11 +85,19 @@ Crawls Wikipedia level by level. Each article's internal links become the next f
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/crawl` | Start a crawl from an article at depth N |
+| `POST` | `/build-graph` | Build a BFS or DFS graph from a starting article |
+| `POST` | `/shortest-path` | Find the shortest path between two articles |
+| `POST` | `/explain` | Generate a Gemini explanation for a path |
 | `GET` | `/graph` | Return full graph as node/edge JSON |
-| `GET` | `/path?from=X&to=Y` | Shortest path between two articles |
-| `GET` | `/explain?from=X&to=Y` | AI-generated explanation of the connection |
 | `GET` | `/stats` | Node count, edge count, depth, top hubs |
+| `GET` | `/centrality` | Top articles ranked by degree centrality |
+| `GET` | `/connections?article=X` | Directly connected articles for a node |
+| `POST` | `/save-graph` | Save the current graph session to disk |
+| `POST` | `/load-graph` | Load a saved graph session |
+| `GET` | `/sessions` | List saved graph sessions |
+| `POST` | `/sessions/rename` | Rename a saved graph session |
+| `DELETE` | `/sessions/{filename}` | Delete a saved graph session |
+| `POST` | `/export-graph` | Export the graph as CSV or GraphML |
 
 ---
 
@@ -128,6 +136,14 @@ npm run dev
 
 UI runs at `http://localhost:5173`
 
+### Docker
+
+```bash
+docker compose up --build
+```
+
+Backend runs at `http://localhost:8000` and frontend runs at `http://localhost:5173`.
+
 ---
 
 ## Roadmap
@@ -138,12 +154,12 @@ UI runs at `http://localhost:5173`
 - [x] React frontend with graph visualization
 - [x] pandas node metadata storage
 - [x] File I/O — save/load graph sessions
-- [ ] DFS mode toggle (BFS vs DFS comparison)
-- [ ] Gemini AI connection explanations
-- [ ] Graph export (CSV / GraphML)
-- [ ] Crawl history and session management
-- [ ] Degree centrality — find the most "connected" articles
-- [ ] Docker setup for one-command run
+- [x] DFS mode toggle (BFS vs DFS comparison)
+- [x] Gemini AI connection explanations
+- [x] Graph export (CSV / GraphML)
+- [x] Crawl history and session management
+- [x] Degree centrality — find the most "connected" articles
+- [x] Docker setup for one-command run
 
 ---
 
@@ -160,5 +176,4 @@ It's also a practical demonstration of core CS concepts in action — BFS/DFS on
 - [ashtosh-dev](https://github.com/ashtosh-dev)
 - [kani-369](https://github.com/kani-369)
 ---
-
 
