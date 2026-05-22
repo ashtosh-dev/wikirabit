@@ -2270,11 +2270,46 @@ function App() {
           </section>
         </section>
       </main>
+
+      <section className="info-sections">
+        <article className="info-card" id="algorithms">
+          <p>Algorithms</p>
+          <h2>How WikiGraph finds connections</h2>
+          <ul>
+            <li>
+              <strong>BFS</strong> explores level by level and guarantees the
+              shortest path in an unweighted graph.
+            </li>
+            <li>
+              <strong>Bidirectional BFS</strong> searches from both start and
+              target, then meets in the middle for faster path discovery.
+            </li>
+            <li>
+              <strong>DFS</strong> dives deep first to quickly surface long,
+              interesting routes through related topics.
+            </li>
+          </ul>
+        </article>
+
+        <article className="info-card" id="about">
+          <p>About</p>
+          <h2>What this project is for</h2>
+          <p className="info-copy">
+            WikiGraph turns Wikipedia into an explorable graph so you can see
+            how ideas connect, discover shortest paths between topics, and
+            generate AI explanations for why those links are meaningful.
+          </p>
+          <p className="info-copy">
+            It is built as a full-stack demo of graph algorithms, interactive
+            visualization, and API-driven search over real-world knowledge
+            networks.
+          </p>
+        </article>
+      </section>
     </div>
   );
 }
 
 export default App;
-
 
 

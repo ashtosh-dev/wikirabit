@@ -1225,6 +1225,59 @@ button {
   z-index: 2;
 }
 
+.info-sections {
+  margin: 0 34px 28px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  position: relative;
+  z-index: 2;
+}
+
+.info-card {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(145deg, rgba(0, 0, 0, 0.88), rgba(2, 6, 23, 0.78)),
+    rgba(15, 23, 42, 0.8);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(0, 0, 0, 0.04);
+  backdrop-filter: blur(20px);
+  padding: 24px 22px;
+  scroll-margin-top: 92px;
+}
+
+.info-card > p {
+  margin: 0 0 10px;
+  color: #b7a8ff;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.info-card h2 {
+  margin: 0;
+  font-size: clamp(22px, 2vw, 30px);
+  letter-spacing: -0.03em;
+}
+
+.info-card ul {
+  margin: 16px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 10px;
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+
+.info-copy {
+  margin: 16px 0 0;
+  color: #cbd5e1;
+  line-height: 1.65;
+}
+
 .left-rail {
   min-height: 0;
   overflow: auto;
@@ -1852,6 +1905,10 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .info-sections {
+    grid-template-columns: 1fr;
+  }
+
   .graph-workbench {
     min-height: 760px;
   }
@@ -1869,6 +1926,11 @@ select {
   .workspace {
     padding: 18px 14px;
     gap: 18px;
+  }
+
+  .info-sections {
+    margin: 0 14px 18px;
+    gap: 14px;
   }
 
   .search-card,
