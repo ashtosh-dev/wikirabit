@@ -6,6 +6,7 @@ const API_BASE = "http://127.0.0.1:8000";
 
 const NAV_ITEMS = [
   { label: "EXPLORE", sectionId: "explore" },
+  { label: "INSIGHTS", sectionId: "insights" },
   { label: "PATHS", sectionId: "paths" },
   { label: "GRAPH", sectionId: "graph" },
   { label: "AI EXPLAIN", sectionId: "ai-explain" },
@@ -38,6 +39,16 @@ const DEFAULT_STATS = {
   top_hubs: [],
 };
 
+const DEFAULT_CENTRALITY = {
+  articles: [],
+};
+
+const DEFAULT_CONNECTIONS = {
+  article: "",
+  degree: 0,
+  connected_articles: [],
+};
+
 const NO_PATH_MESSAGE =
   "No path found in current graph. Try increasing depth or using exact Wikipedia title.";
 
@@ -62,6 +73,8 @@ function App() {
 
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [stats, setStats] = useState(DEFAULT_STATS);
+  const [centrality, setCentrality] = useState(DEFAULT_CENTRALITY);
+  const [connections, setConnections] = useState(DEFAULT_CONNECTIONS);
 
   const [loading, setLoading] = useState(false);
   const [pathLoading, setPathLoading] = useState(false);
@@ -76,6 +89,12 @@ function App() {
 
   const [saveFilename, setSaveFilename] = useState("wikirabit_graph");
   const [sessions, setSessions] = useState([]);
+  const [currentSession, setCurrentSession] = useState("");
+  const [sessionRenameDrafts, setSessionRenameDrafts] = useState({});
+  const [exportFilename, setExportFilename] = useState("wikirabit_graph");
+  const [exportFormat, setExportFormat] = useState("csv");
+  const [exportFiles, setExportFiles] = useState([]);
+  const [connectionArticle, setConnectionArticle] = useState("Python");
 
   const [hoveredNode, setHoveredNode] = useState(null);
   const [graphSize, setGraphSize] = useState({ width: 900, height: 624 });
@@ -138,10 +157,17 @@ function App() {
     setAiMessage("");
   };
 
+  const resetInsightPanels = () => {
+    setCentrality(DEFAULT_CENTRALITY);
+    setConnections(DEFAULT_CONNECTIONS);
+    setExportFiles([]);
+  };
+
   const applyExamplePair = (example) => {
     setStartArticle(example.start);
     setTargetArticle(example.target);
     setDepth(example.depth);
+    setConnectionArticle(example.start);
     resetPathAndAi();
     setStatusMessage("");
   };
@@ -161,6 +187,79 @@ function App() {
 
     graphRef.current.zoomToFit(duration, padding);
   }, [graphData.nodes.length]);
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/sessions`);
+      const data = await response.json();
+
+      setSessions(data.sessions ?? []);
+      setCurrentSession(data.current_session ?? "");
+      setSessionRenameDrafts((currentDrafts) => {
+        const nextDrafts = {};
+
+        for (const session of data.sessions ?? []) {
+          nextDrafts[session.filename] =
+            currentDrafts[session.filename] ?? session.filename.replace(/\.json$/i, "");
+        }
+
+        return nextDrafts;
+      });
+    } catch {
+      setStatusMessage("Unable to load saved sessions.");
+    }
+  }, []);
+
+  const loadCentrality = useCallback(async () => {
+    const response = await fetch(`${API_BASE}/centrality?limit=8`);
+    const data = await response.json();
+
+    setCentrality({
+      ...DEFAULT_CENTRALITY,
+      ...data,
+    });
+  }, []);
+
+  const loadConnections = useCallback(async (article) => {
+    const normalizedArticle = article.trim();
+
+    if (!normalizedArticle) {
+      setConnections(DEFAULT_CONNECTIONS);
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/connections?article=${encodeURIComponent(normalizedArticle)}&limit=12`,
+    );
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.detail ?? "Unable to load connected articles.");
+    }
+
+    setConnections({
+      ...DEFAULT_CONNECTIONS,
+      ...data,
+    });
+  }, []);
+
+  const loadGraphSnapshot = useCallback(async () => {
+    const [graphResponse, statsResponse] = await Promise.all([
+      fetch(`${API_BASE}/graph`),
+      fetch(`${API_BASE}/stats`),
+    ]);
+
+    const [graph, statsData] = await Promise.all([
+      graphResponse.json(),
+      statsResponse.json(),
+    ]);
+
+    setGraphData(formatGraphForFrontend(graph));
+    setStats({
+      ...DEFAULT_STATS,
+      ...statsData,
+    });
+  }, []);
 
   useEffect(() => {
     if (!graphShellRef.current) {
@@ -199,19 +298,60 @@ function App() {
     return () => clearTimeout(fitTimer);
   }, [graphData, isPathLink, fitGraphToView]);
 
+  useEffect(() => {
+    let ignore = false;
+
+    const hydrateSessions = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/sessions`);
+        const data = await response.json();
+
+        if (ignore) {
+          return;
+        }
+
+        setSessions(data.sessions ?? []);
+        setCurrentSession(data.current_session ?? "");
+        setSessionRenameDrafts((currentDrafts) => {
+          const nextDrafts = {};
+
+          for (const session of data.sessions ?? []) {
+            nextDrafts[session.filename] =
+              currentDrafts[session.filename] ??
+              session.filename.replace(/\.json$/i, "");
+          }
+
+          return nextDrafts;
+        });
+      } catch {
+        if (!ignore) {
+          setStatusMessage("Unable to load saved sessions.");
+        }
+      }
+    };
+
+    hydrateSessions();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
   const buildGraph = async () => {
     setLoading(true);
     setStatusMessage("");
     resetPathAndAi();
+    resetInsightPanels();
 
     try {
+      const normalizedStartArticle = startArticle.trim();
       const buildResponse = await fetch(`${API_BASE}/build-graph`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          start_article: startArticle.trim(),
+          start_article: normalizedStartArticle,
           depth: Number(depth),
           max_links_per_page: Number(maxLinksPerPage),
           strategy,
@@ -223,18 +363,11 @@ function App() {
         throw new Error(errorData.detail ?? "Unable to build graph.");
       }
 
-      const graphResponse = await fetch(`${API_BASE}/graph`);
-      const graph = await graphResponse.json();
-
-      setGraphData(formatGraphForFrontend(graph));
-
-      const statsResponse = await fetch(`${API_BASE}/stats`);
-      const statsData = await statsResponse.json();
-
-      setStats({
-        ...DEFAULT_STATS,
-        ...statsData,
-      });
+      await loadGraphSnapshot();
+      await loadCentrality();
+      await loadConnections(normalizedStartArticle);
+      setConnectionArticle(normalizedStartArticle);
+      setCurrentSession("");
 
       setStatusMessage("Graph built successfully.");
     } catch (error) {
@@ -324,6 +457,7 @@ function App() {
         },
         body: JSON.stringify({
           filename: saveFilename,
+          target_article: targetArticle.trim(),
         }),
       });
 
@@ -334,21 +468,10 @@ function App() {
       }
 
       setStatusMessage(`Graph saved as ${data.filename}`);
+      setCurrentSession(data.filename ?? "");
+      await loadSessions();
     } catch (error) {
       setStatusMessage(error.message || "Unable to save graph.");
-    }
-  };
-
-  const loadSessions = async () => {
-    setStatusMessage("");
-
-    try {
-      const response = await fetch(`${API_BASE}/sessions`);
-      const data = await response.json();
-
-      setSessions(data.sessions ?? []);
-    } catch {
-      setStatusMessage("Unable to load saved sessions.");
     }
   };
 
@@ -372,19 +495,125 @@ function App() {
         throw new Error(data.detail ?? "Unable to load graph.");
       }
 
-      const graphResponse = await fetch(`${API_BASE}/graph`);
-      const graph = await graphResponse.json();
-
-      setGraphData(formatGraphForFrontend(graph));
-      setStats({
-        ...DEFAULT_STATS,
-        ...(data.stats ?? {}),
-      });
+      await loadGraphSnapshot();
+      await loadCentrality();
 
       resetPathAndAi();
+      setStartArticle(data.metadata?.start_article ?? startArticle);
+      setTargetArticle(data.metadata?.target_article ?? targetArticle);
+      setDepth(String(data.metadata?.depth ?? depth));
+      setMaxLinksPerPage(
+        String(data.metadata?.max_links_per_page ?? maxLinksPerPage),
+      );
+      setStrategy(data.metadata?.strategy ?? strategy);
+      setConnectionArticle(data.metadata?.start_article ?? connectionArticle);
+      await loadConnections(data.metadata?.start_article ?? connectionArticle);
+      await loadSessions();
       setStatusMessage(`Loaded ${filename}`);
     } catch (error) {
       setStatusMessage(error.message || "Unable to load graph.");
+    }
+  };
+
+  const renameSession = async (filename) => {
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE}/sessions/rename`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          filename,
+          new_filename: sessionRenameDrafts[filename] ?? filename,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail ?? "Unable to rename session.");
+      }
+
+      setStatusMessage(`Renamed session to ${data.filename}`);
+      await loadSessions();
+    } catch (error) {
+      setStatusMessage(error.message || "Unable to rename session.");
+    }
+  };
+
+  const deleteSession = async (filename) => {
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE}/sessions/${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail ?? "Unable to delete session.");
+      }
+
+      if (currentSession === filename) {
+        setCurrentSession("");
+      }
+
+      setStatusMessage(`Deleted ${data.filename}`);
+      await loadSessions();
+    } catch (error) {
+      setStatusMessage(error.message || "Unable to delete session.");
+    }
+  };
+
+  const exportGraph = async () => {
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE}/export-graph`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          filename: exportFilename,
+          format: exportFormat,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail ?? "Unable to export graph.");
+      }
+
+      setExportFiles(data.files ?? []);
+      setStatusMessage(
+        exportFormat === "csv"
+          ? "Exported node and edge CSV files."
+          : "Exported GraphML file.",
+      );
+    } catch (error) {
+      setStatusMessage(error.message || "Unable to export graph.");
+    }
+  };
+
+  const downloadExport = (filename) => {
+    const link = document.createElement("a");
+    link.href = `${API_BASE}/exports/${encodeURIComponent(filename)}`;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.click();
+  };
+
+  const inspectArticle = async (article) => {
+    setConnectionArticle(article);
+
+    try {
+      await loadConnections(article);
+    } catch (error) {
+      setStatusMessage(
+        error.message || "Unable to load connected articles for that node.",
+      );
     }
   };
 
@@ -619,6 +848,86 @@ function App() {
             )}
           </section>
 
+          <section className="insights-panel" id="insights">
+            <p className="eyebrow">GRAPH INSIGHTS</p>
+            <h2>Degree centrality and connected articles</h2>
+
+            {centrality.articles?.length > 0 ? (
+              <>
+                <div className="top-hubs">
+                  <p>TOP CENTRAL ARTICLES</p>
+
+                  {centrality.articles.map((article) => (
+                    <button
+                      className="hub-row hub-action"
+                      key={article.article}
+                      type="button"
+                      onClick={() => inspectArticle(article.article)}
+                    >
+                      <span>{article.article}</span>
+                      <strong>{article.degree_centrality}</strong>
+                    </button>
+                  ))}
+                </div>
+
+                <label>CONNECTED ARTICLE LOOKUP</label>
+                <input
+                  value={connectionArticle}
+                  onChange={(e) => setConnectionArticle(e.target.value)}
+                  placeholder="Search an article from the current graph"
+                />
+
+                <div className="action-row">
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => inspectArticle(connectionArticle)}
+                    disabled={graphData.nodes.length === 0}
+                  >
+                    SHOW CONNECTIONS
+                  </button>
+                </div>
+
+                {connections.article && (
+                  <div className="connections-panel">
+                    <div className="connections-header">
+                      <div>
+                        <p>SELECTED ARTICLE</p>
+                        <strong>{connections.article}</strong>
+                      </div>
+                      <span>{connections.degree} links</span>
+                    </div>
+
+                    {connections.connected_articles.length > 0 ? (
+                      <div className="sessions-list compact-list">
+                        {connections.connected_articles.map((article) => (
+                          <button
+                            className="session-item compact-item"
+                            key={article.article}
+                            type="button"
+                            onClick={() => inspectArticle(article.article)}
+                          >
+                            <span>{article.article}</span>
+                            <strong>{article.degree} degree</strong>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="status-message">
+                        This article has no saved neighbors in the current graph.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="status-message">
+                Build or load a graph to inspect central articles and their direct
+                connections.
+              </p>
+            )}
+          </section>
+
           <section className="path-panel" id="paths">
             <p className="eyebrow">SHORTEST PATH</p>
 
@@ -685,7 +994,7 @@ function App() {
 
           <section className="storage-panel" id="file-io">
             <p className="eyebrow">FILE I/O</p>
-            <h2>Save / Load Graph</h2>
+            <h2>Save, export, and manage sessions</h2>
 
             <label>SESSION NAME</label>
             <input
@@ -709,27 +1018,133 @@ function App() {
                 type="button"
                 onClick={loadSessions}
               >
-                SHOW SAVED
+                REFRESH HISTORY
               </button>
             </div>
 
-            {sessions.length > 0 && (
-              <div className="sessions-list">
-                {sessions.map((session) => (
+            <label>EXPORT NAME</label>
+            <input
+              value={exportFilename}
+              onChange={(e) => setExportFilename(e.target.value)}
+              placeholder="wikirabit_graph"
+            />
+
+            <label>EXPORT FORMAT</label>
+            <select
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value)}
+            >
+              <option value="csv">CSV (nodes + edges)</option>
+              <option value="graphml">GraphML</option>
+            </select>
+
+            <div className="action-row">
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={exportGraph}
+                disabled={graphData.nodes.length === 0}
+              >
+                EXPORT GRAPH
+              </button>
+            </div>
+
+            {exportFiles.length > 0 && (
+              <div className="sessions-list compact-list">
+                {exportFiles.map((file) => (
                   <button
-                    className="session-item"
+                    className="session-item compact-item"
+                    key={file.filename}
                     type="button"
-                    key={session.filename}
-                    onClick={() => loadGraph(session.filename)}
+                    onClick={() => downloadExport(file.filename)}
                   >
-                    <span>{session.filename}</span>
-                    <strong>
-                      {session.metadata?.nodes ?? 0} nodes /{" "}
-                      {session.metadata?.edges ?? 0} edges
-                    </strong>
+                    <span>{file.filename}</span>
+                    <strong>DOWNLOAD</strong>
                   </button>
                 ))}
               </div>
+            )}
+
+            {sessions.length > 0 ? (
+              <div className="session-history">
+                <p className="history-heading">SESSION HISTORY</p>
+
+                <div className="sessions-list">
+                  {sessions.map((session) => (
+                    <div
+                      className={[
+                        "session-card",
+                        session.is_current ? "session-card-current" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      key={session.filename}
+                    >
+                      <div className="session-card-header">
+                        <div>
+                          <span>{session.filename}</span>
+                          <strong>
+                            {session.metadata?.nodes ?? 0} nodes /{" "}
+                            {session.metadata?.edges ?? 0} edges
+                          </strong>
+                        </div>
+                        {session.is_current && <em>Current</em>}
+                      </div>
+
+                      <p className="session-meta">
+                        {session.metadata?.start_article ?? "Unknown start"} →{" "}
+                        {session.metadata?.target_article ?? "No target saved"}
+                      </p>
+                      <p className="session-meta">
+                        Saved {session.metadata?.saved_at ?? "unknown time"} ·{" "}
+                        {(session.metadata?.strategy ?? "bfs").toUpperCase()} ·
+                        Depth {session.metadata?.depth ?? 0}
+                      </p>
+
+                      <div className="action-row session-actions">
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          onClick={() => loadGraph(session.filename)}
+                        >
+                          LOAD
+                        </button>
+                        <button
+                          className="secondary-action danger-action"
+                          type="button"
+                          onClick={() => deleteSession(session.filename)}
+                        >
+                          DELETE
+                        </button>
+                      </div>
+
+                      <div className="session-rename">
+                        <input
+                          value={sessionRenameDrafts[session.filename] ?? ""}
+                          onChange={(e) =>
+                            setSessionRenameDrafts((currentDrafts) => ({
+                              ...currentDrafts,
+                              [session.filename]: e.target.value,
+                            }))
+                          }
+                          placeholder="Rename session"
+                        />
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          onClick={() => renameSession(session.filename)}
+                        >
+                          RENAME
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="status-message">
+                Save a graph to start building session history.
+              </p>
             )}
           </section>
         </section>
@@ -797,6 +1212,7 @@ function App() {
               graphData={graphData}
               nodeLabel={(node) => node.label}
               onNodeHover={setHoveredNode}
+              onNodeClick={(node) => inspectArticle(node.label ?? node.id)}
               nodeCanvasObject={paintNode}
               nodePointerAreaPaint={(node, color, ctx) => {
                 ctx.fillStyle = color;
